@@ -3,12 +3,13 @@ from PyQt5.QtCore import Qt
 from ui import *
 from docxtpl import DocxTemplate
 import os
-from re import sub, split
-from PyQt5.QtWidgets import QMessageBox, QComboBox, QHeaderView
+from re import sub, split, match, compile, findall
+from PyQt5.QtWidgets import QMessageBox, QComboBox, QHeaderView, QFileDialog
 from webbrowser import open as op
 from json import dump, load
 from datetime import datetime
 from time import time
+from docx import Document
 
 class custom_combo_box(QComboBox):
     def init(self, parent=None):
@@ -29,6 +30,7 @@ class window(QtWidgets.QMainWindow):
         self.ui.radioButton_RD.clicked.connect(self.confirm_change_tableWidget)
         self.ui.buttonDelete.clicked.connect(self.del_row)
         self.ui.buttonGenerate.clicked.connect(self.generate)
+        self.ui.buttonImport.clicked.connect(self.import_from_word)
         self.ui.buttonFolder.clicked.connect(self.go_to_folder)
         self.ui.buttonSave.clicked.connect(lambda: self.save(True))
         self.ui.buttonLoad.clicked.connect(self.load)
@@ -107,6 +109,93 @@ class window(QtWidgets.QMainWindow):
         self.ui.tableWidget.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.ui.tableWidget.horizontalHeader().setStretchLastSection(True)
         self.ui.tableWidget.setColumnWidth(0, 700)
+
+    def import_from_word(self):
+        word = QFileDialog.getOpenFileName(self, 'Выбрать файл', filter='*.docx , *.doc')
+        document = Document(word[0])
+        with open('config.json', 'r') as f:
+            data_save = load(f)
+        matrix = []
+        multi_space_pattern = compile(r' ')
+        for table in document.tables:
+            for row in table.rows:
+                list_cycle = []
+                string = []
+                for i in row.cells:
+                    name = multi_space_pattern.sub(' ', i.text.strip())
+                    list_cycle.append(name)
+                if match("\d", list_cycle[0]):  # 5.1.3
+                    nums = split("\.", list_cycle[0], maxsplit=3)  # ['1', '1']
+                    if int(nums[0]) != 5 and int(nums[0]) != 13:
+                        if len(nums) == 1:
+                            string.append(f"Раздел {nums[0]}.")
+                            string.append("")
+                            string.append("")
+                        elif len(nums) == 2:
+                            string.append(f"Раздел {nums[0]}.")
+                            string.append(f"Часть {nums[1]}")
+                            string.append("")
+                        elif len(nums) == 3:
+                            string.append(f"Раздел {nums[0]}.")
+                            string.append(f"Часть {nums[1]}")
+                            string.append(f"Книга {nums[2]}")
+                    elif int(nums[0]) == 13:
+                        break
+                    else:
+                        if len(nums) == 2:
+                            string.append(f"Раздел {nums[0]}. Подраздел {nums[1]}.")
+                            string.append("")
+                            string.append("")
+                        elif len(nums) == 3:
+                            string.append(f"Раздел {nums[0]}. Подраздел {nums[1]}.")
+                            string.append(f"Часть {nums[2]}")
+                            string.append("")
+                        elif len(nums) == 4:
+                            string.append(f"Раздел {nums[0]}. Подраздел {nums[1]}.")
+                            string.append(f"Часть {nums[2]}")
+                            string.append(f"Книга {nums[3]}")
+                    kostilb = split("\.\s", list_cycle[2], maxsplit=1)
+                    string.append(kostilb[-1])  # Наименование части
+                    string.append("")
+                    string.append(list_cycle[1])  # Обозначение
+                    matrix.append(string)
+        for row in matrix:
+            for cell in row:
+                print(cell, end="\t")
+            print()
+        self.loadTablePD()
+        for row in range(len(matrix)):
+            self.ui.tableWidget.insertRow(self.ui.tableWidget.rowCount())
+            combo_box5 = custom_combo_box()
+            combo_box5.addItems(data_save["Раздел"])
+            self.ui.tableWidget.setCellWidget(row, 0, combo_box5)
+            for chapter in range(len(data_save["Раздел"])):
+                if findall(pattern=str(matrix[row][0]), string=str(data_save["Раздел"][chapter])):
+                    combo_box5.setCurrentText(data_save["Раздел"][chapter])
+                    break
+            combo_box5 = custom_combo_box()
+            combo_box5.addItems(data_save["Номер части"])
+            self.ui.tableWidget.setCellWidget(row, 1, combo_box5)
+            if matrix[row][1] not in data_save["Номер части"]:
+                combo_box5.addItem(matrix[row][1])
+            combo_box5.setCurrentText(matrix[row][1])
+
+            combo_box5 = custom_combo_box()
+            combo_box5.addItems(data_save["Номер книги"])
+            self.ui.tableWidget.setCellWidget(row, 2, combo_box5)
+            if matrix[row][2] not in data_save["Номер книги"]:
+                combo_box5.addItem(matrix[row][2])
+            combo_box5.setCurrentText(matrix[row][2])
+
+            combo_box5 = custom_combo_box()
+            combo_box5.addItems(data_save["Название части"])
+            self.ui.tableWidget.setCellWidget(row, 3, combo_box5)
+            if matrix[row][3] not in data_save["Название части"]:
+                combo_box5.addItem(matrix[row][3])
+            combo_box5.setCurrentText(matrix[row][3])
+
+            self.ui.tableWidget.setItem(row, 4, QtWidgets.QTableWidgetItem(matrix[row][4]))
+            self.ui.tableWidget.setItem(row, 5, QtWidgets.QTableWidgetItem(matrix[row][5]))
 
     def generate(self):
         rowCount = self.ui.tableWidget.rowCount()
@@ -240,9 +329,9 @@ class window(QtWidgets.QMainWindow):
                 doc.render(context)
                 if columnCount == 6:
                     if table[ii * 6][0:8] == "Раздел 5":
-                        doc.save(f"{path}/{split1[ii][0]} {split1[ii][1]} {split1[ii][2]} ({ii + 1}).docx")
+                        doc.save(f"{path}/{split1[ii][0]} {split1[ii][1]} {table[ii * 6 + 1]} {table[ii * 6 + 2]} ({ii + 1}).docx")
                     else:
-                        doc.save(f"{path}/{split1[ii][0]} {split1[ii][1]} ({ii + 1}).docx")
+                        doc.save(f"{path}/{split1[ii][0]} {table[ii * 6 + 1]} {table[ii * 6 + 2]} ({ii + 1}).docx")
                 else:
                     doc.save(f"{path}/{table[ii * 2]} ({ii + 1}).docx")
                 flag_folder = False
